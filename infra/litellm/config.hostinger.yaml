@@ -22,7 +22,7 @@ router_settings:
   routing_strategy: simple-shuffle
   fallbacks:
     - bd-coach-ceo: [bd-coach-failover-ceo]
-    - bd-coach-bd:  [bd-coach-failover-bd]
+    - bd-coach-bd: [bd-coach-failover-bd]
 
 litellm_settings:
   drop_params: true

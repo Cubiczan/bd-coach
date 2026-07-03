@@ -44,8 +44,9 @@ jobs:
             echo "CODEBERG_TOKEN or CODEBERG_ORG not set — skip mirror"
             exit 0
           fi
-          git remote add codeberg "https://${CODEBERG_TOKEN}@codeberg.org/${CODEBERG_ORG}/bd-coach-infra.git" 2>/dev/null || \
-            git remote set-url codeberg "https://${CODEBERG_TOKEN}@codeberg.org/${CODEBERG_ORG}/bd-coach-infra.git"
+          MIRROR_URL="https://${CODEBERG_TOKEN}@codeberg.org/${CODEBERG_ORG}/bd-coach-infra.git"
+          git remote add codeberg "${MIRROR_URL}" 2>/dev/null || \
+            git remote set-url codeberg "${MIRROR_URL}"
           git push codeberg HEAD:main
 
   deploy:

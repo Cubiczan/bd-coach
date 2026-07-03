@@ -37,7 +37,7 @@ sources:
     acl:
       CEO: ["*"]
       USA_BD: [weekly_reports:americas, scorecard, commission, points_engine, cadence]
-      EU_BD:  [weekly_reports:emea,  scorecard, commission, points_engine, cadence]
+      EU_BD: [weekly_reports:emea, scorecard, commission, points_engine, cadence]
     timeout_s: 10
     max_retries: 2
     retry_backoff_s: 1.0

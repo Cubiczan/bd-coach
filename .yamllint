@@ -1,0 +1,18 @@
+---
+# Project yamllint conventions, used by the "Lint YAML" steps in
+# .github/workflows/ci.yml (ibiqlik/action-yamllint picks this up
+# automatically from the repo root).
+extends: default
+
+rules:
+  # Config files carry long URLs and prompt strings; 120 is the house limit.
+  line-length:
+    max: 120
+  # Single-document config files don't require a "---" marker.
+  document-start: disable
+  # Allow GitHub Actions' "on:" trigger key and similar.
+  truthy:
+    check-keys: false
+  # Allow the "{ key: value }" flow-mapping style used throughout.
+  braces:
+    max-spaces-inside: 1
