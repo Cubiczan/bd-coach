@@ -1,0 +1,6 @@
+# Live coach service. Deliberately small — transcription and inference are
+# delegated to containers the stack already runs.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+pyyaml==6.0.2

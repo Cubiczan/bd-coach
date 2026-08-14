@@ -1,0 +1,49 @@
+# Live call coaching overlay — OPT-IN.
+#
+# Adds one service. Agora carries the call audio; transcription stays on the
+# stack's own whisper container and coaching goes through the existing LiteLLM
+# gateway with its DLP and audit hooks.
+#
+# Enabling this means call audio transits a third party. That is a genuine
+# departure from the rest of BD Coach's self-hosted posture — see
+# infra/docs/LIVE-COACH.md before turning it on.
+#
+#   docker compose \
+#     -f compose/docker-compose.yml \
+#     -f compose/docker-compose.coach.yml up -d
+---
+services:
+  coach:
+    build:
+      context: ../coach
+      dockerfile: Dockerfile
+    image: bd-coach/coach:live
+    depends_on: [litellm, whisper]
+    environment:
+      # Agora — transport only. Without these the service starts but the call
+      # surface reports itself disabled.
+      AGORA_APP_ID: ${AGORA_APP_ID:-}
+      AGORA_APP_CERTIFICATE: ${AGORA_APP_CERTIFICATE:-}
+      AGORA_TOKEN_TTL: ${AGORA_TOKEN_TTL:-3600}
+      # In-house pipeline.
+      COACH_WHISPER_URL: http://whisper:8000/v1/audio/transcriptions
+      COACH_WHISPER_MODEL: ${COACH_WHISPER_MODEL:-Systran/faster-whisper-base}
+      COACH_LITELLM_URL: http://litellm:4000/v1/chat/completions
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      COACH_MODEL: ${COACH_MODEL:-bd-coach-bd}
+      # Coaching behaviour.
+      COACH_COMPETITORS: ${COACH_COMPETITORS:-}
+      COACH_EXPECTED_DURATION: ${COACH_EXPECTED_DURATION:-1800}
+      COACH_PROMPT_PATH: /config/prompts/live_coach.v1.0.md
+      COACH_DLP_RULES: /dlp/restricted_hr_comp.yaml
+      MM_HOOK_COACH: ${MM_HOOK_COACH:-}
+    volumes:
+      # Same read-only config mounts the rest of the stack uses.
+      - ../../config/dlp:/dlp:ro
+      - ../../config/prompts:/config/prompts:ro
+    networks: [bdcoach]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.coach.rule=Host(`coach.${BD_COACH_DOMAIN}`)
+      - traefik.http.routers.coach.tls.certresolver=le
+      - traefik.http.services.coach.loadbalancer.server.port=8080
