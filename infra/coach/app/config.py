@@ -9,7 +9,11 @@ any further decisions.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+
+# Agora AccessToken2.build() returns "" unless both values are 32-char hex.
+_AGORA_HEX = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -46,10 +50,17 @@ class Settings:
     # ── Optional outbound ──────────────────────────────────────────────────
     mattermost_webhook: str
 
+    # ── Join guard (shared bearer, not per-user identity) ──────────────────
+    join_secret: str
+    public_domain: str
+
     @property
     def configured(self) -> bool:
-        """Can we mint tokens at all? Everything else has a working default."""
-        return self.agora_app_id != "" and self.agora_app_certificate != ""
+        """Can we mint tokens at all? Agora creds must be 32-char hex."""
+        return bool(
+            _AGORA_HEX.fullmatch(self.agora_app_id)
+            and _AGORA_HEX.fullmatch(self.agora_app_certificate)
+        )
 
 
 def load_settings() -> Settings:
@@ -72,4 +83,6 @@ def load_settings() -> Settings:
         prompt_path=_env("COACH_PROMPT_PATH", "/config/prompts/live_coach.v1.0.md"),
         dlp_rules_path=_env("COACH_DLP_RULES", "/dlp/restricted_hr_comp.yaml"),
         mattermost_webhook=_env("MM_HOOK_COACH"),
+        join_secret=_env("COACH_JOIN_SECRET"),
+        public_domain=_env("BD_COACH_DOMAIN"),
     )

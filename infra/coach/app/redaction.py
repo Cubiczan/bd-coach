@@ -45,7 +45,7 @@ class RedactionResult:
 class Redactor:
     """Applies the shared DLP patterns as substitutions rather than as a gate."""
 
-    def __init__(self, rules: dict) -> None:
+    def __init__(self, rules: dict, *, loaded: bool = True) -> None:
         compiled: list[tuple[str, re.Pattern[str]]] = []
         rule_block = rules.get("rules", {})
         # First, so a card number read aloud is labelled `long_number` rather
@@ -60,10 +60,25 @@ class Redactor:
             for rule in rule_block.get(section, []) or []:
                 compiled.append((rule["id"], re.compile(rule["pattern"])))
         self._rules = tuple(compiled)
+        self._loaded = loaded
+
+    @property
+    def loaded(self) -> bool:
+        """False when rules failed to load; the model path must then be skipped."""
+        return self._loaded
 
     @classmethod
     def from_path(cls, path: pathlib.Path = DEFAULT_RULES_PATH) -> "Redactor":
-        return cls(yaml.safe_load(path.read_text()))
+        try:
+            raw = yaml.safe_load(path.read_text())
+        except (OSError, yaml.YAMLError) as exc:
+            raise ValueError(f"DLP rules unreadable: {exc}") from exc
+        if not isinstance(raw, dict) or not isinstance(raw.get("rules"), dict):
+            raise ValueError("DLP rules file has unexpected shape")
+        try:
+            return cls(raw, loaded=True)
+        except (KeyError, TypeError, re.error) as exc:
+            raise ValueError(f"DLP rules invalid: {exc}") from exc
 
     def redact(self, text: str) -> RedactionResult:
         """Replace every match with a labelled placeholder.

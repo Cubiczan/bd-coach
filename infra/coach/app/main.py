@@ -25,16 +25,18 @@ import pathlib
 import re
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .auth import bearer_token, join_secret_ok
 from .coaching import Coach, load_prompt
 from .config import Settings, load_settings
-from .cues import PROSPECT, SELLER, CueEngine, Utterance
+from .cues import PROSPECT, SELLER, CueEngine, Utterance, finite_nonneg
 from .redaction import Redactor
 
 # Vendored official Agora AccessToken2 builder; see vendor/agora/__init__.py.
@@ -90,22 +92,23 @@ async def lifespan(app: FastAPI):
 
 
 def _load_redactor(settings: Settings) -> Redactor:
-    """Fail closed: with no rule file, redact nothing but say so loudly.
+    """Fail closed for the model path when rules cannot be loaded.
 
-    An empty ruleset is not silently equivalent to a working one, so this logs
-    at error level — but it does not stop the service, because a missing mount
-    should not take a sales team's calls offline.
+    The service still starts (a missing mount must not take calls offline) but
+    the returned redactor reports ``loaded=False`` so phrasing skips LiteLLM
+    rather than sending an unredacted transcript to a gateway that may fail
+    over to Groq.
     """
     try:
         return Redactor.from_path(pathlib.Path(settings.dlp_rules_path))
     except (OSError, ValueError) as exc:
         log.error(
-            "DLP rules unreadable at %s (%s) — transcripts will NOT be redacted "
-            "before reaching the model gateway. Fix the /dlp mount.",
+            "DLP rules unreadable at %s (%s) — model phrasing is disabled. "
+            "Fix the /dlp mount.",
             settings.dlp_rules_path,
             exc,
         )
-        return Redactor({"rules": {}})
+        return Redactor({"rules": {}}, loaded=False)
 
 
 app = FastAPI(title="BD Coach — live call coaching", lifespan=lifespan)
@@ -113,7 +116,27 @@ app = FastAPI(title="BD Coach — live call coaching", lifespan=lifespan)
 
 class TokenRequest(BaseModel):
     call_id: str = Field(min_length=1, max_length=48)
-    role: str = Field(default=SELLER)
+    role: Literal["seller", "prospect"] = SELLER
+
+
+def _require_join_secret(provided: str | None, settings: Settings) -> None:
+    if not settings.join_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="COACH_JOIN_SECRET is unset — call surface is locked",
+        )
+    if not join_secret_ok(provided, settings.join_secret):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _origin_allowed(origin: str | None, settings: Settings) -> bool:
+    """Optional Origin check. Unset BD_COACH_DOMAIN skips it (local/dev)."""
+    if not settings.public_domain:
+        return True
+    if not origin:
+        return False
+    expected = f"https://coach.{settings.public_domain}"
+    return origin.rstrip("/") == expected
 
 
 def _uid_for(seed: str) -> int:
@@ -132,6 +155,7 @@ async def healthz() -> JSONResponse:
         {
             "ok": True,
             "call_surface": settings.configured,
+            "join_guard": bool(settings.join_secret),
             "transcription": "in-house (whisper)",
             "model_gateway": settings.coach_model,
         }
@@ -139,10 +163,20 @@ async def healthz() -> JSONResponse:
 
 
 @app.post("/token")
-async def token(request: TokenRequest) -> JSONResponse:
+async def token(
+    request: TokenRequest,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
     settings: Settings = state["settings"]  # type: ignore[assignment]
+    _require_join_secret(bearer_token(authorization), settings)
     if not settings.configured:
-        raise HTTPException(status_code=503, detail="AGORA_APP_ID / AGORA_APP_CERTIFICATE are unset")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "AGORA_APP_ID / AGORA_APP_CERTIFICATE are missing or not "
+                "32-character hexadecimal"
+            ),
+        )
 
     channel = f"bdcall-{request.call_id}"
     if not _CHANNEL_OK.match(channel):
@@ -158,6 +192,15 @@ async def token(request: TokenRequest) -> JSONResponse:
         settings.token_ttl,
         settings.token_ttl,
     )
+    if not rtc_token:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Agora token builder returned an empty token. "
+                "AGORA_APP_ID and AGORA_APP_CERTIFICATE must each be "
+                "32-character hexadecimal."
+            ),
+        )
 
     return JSONResponse(
         {
@@ -173,9 +216,13 @@ async def token(request: TokenRequest) -> JSONResponse:
 @app.websocket("/ws/coach")
 async def coach_socket(websocket: WebSocket) -> None:
     """Audio in, nudges out, for the duration of one call."""
+    settings: Settings = state["settings"]  # type: ignore[assignment]
+    _require_join_secret(websocket.query_params.get("token"), settings)
+    if not _origin_allowed(websocket.headers.get("origin"), settings):
+        raise HTTPException(status_code=403, detail="origin not allowed")
+
     await websocket.accept()
 
-    settings: Settings = state["settings"]  # type: ignore[assignment]
     coach: Coach = state["coach"]  # type: ignore[assignment]
     transcriber = state["transcriber"]
 
@@ -213,8 +260,8 @@ async def coach_socket(websocket: WebSocket) -> None:
             if not text:
                 continue
 
-            at = float(message.get("at", 0.0))
-            duration = float(message.get("duration", 0.0))
+            at = finite_nonneg(message.get("at"))
+            duration = finite_nonneg(message.get("duration"))
             engine.add(Utterance(speaker=speaker, text=text, at=at, duration=duration))
             await websocket.send_json({"type": "transcript", "speaker": speaker, "text": text})
 
@@ -222,11 +269,13 @@ async def coach_socket(websocket: WebSocket) -> None:
             if not fired:
                 continue
 
-            # One nudge at a time — the highest-priority cue wins and the rest
-            # keep their cooldowns intact for later in the call.
+            # Phrase and deliver first. accept() starts cooldowns; burning them
+            # on a disconnect during phrasing would suppress the cue for minutes
+            # with no nudge shown.
             cue = fired[0]
+            payload = await coach.phrase(cue, _recent(engine))
+            await websocket.send_json(payload)
             engine.accept(cue)
-            await websocket.send_json(await coach.phrase(cue, _recent(engine)))
 
     except WebSocketDisconnect:
         log.info("coach socket closed by client")

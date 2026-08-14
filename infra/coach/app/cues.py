@@ -15,6 +15,7 @@ matching how the rest of BD Coach scores pipeline.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -46,6 +47,17 @@ _NEXT_STEP = re.compile(
     r"circle back|proposal|trial|pilot)\b",
     re.I,
 )
+
+
+def finite_nonneg(value: object, default: float = 0.0) -> float:
+    """Coerce a client-supplied timestamp/duration to a finite, non-negative float."""
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number) or number < 0:
+        return default
+    return number
 
 
 @dataclass(frozen=True)
@@ -102,7 +114,22 @@ class CueEngine:
         self._last_any: float = -1e9
 
     def add(self, utterance: Utterance) -> None:
-        self._utterances.append(utterance)
+        at = finite_nonneg(utterance.at)
+        duration = finite_nonneg(utterance.duration)
+        if at != utterance.at or duration != utterance.duration:
+            utterance = Utterance(
+                speaker=utterance.speaker,
+                text=utterance.text,
+                at=at,
+                duration=duration,
+            )
+        # Concurrent seller/prospect recorders can finish out of `at` order.
+        # Metrics treat list order as the timeline, so insert by start time.
+        utterances = self._utterances
+        index = len(utterances)
+        while index > 0 and utterances[index - 1].at > utterance.at:
+            index -= 1
+        utterances.insert(index, utterance)
 
     def recent(self, turns: int = 8) -> tuple[Utterance, ...]:
         """The last few turns, for building model context."""
@@ -120,6 +147,7 @@ class CueEngine:
 
         m = CallMetrics(elapsed=now)
         run = 0.0
+        previous_end: float | None = None
         for u in self._utterances:
             # Clip to the window rather than counting the whole utterance. A
             # four-minute monologue that ended just inside the window must not
@@ -128,9 +156,12 @@ class CueEngine:
             # handed the call back.
             overlap = (u.at + u.duration) - max(u.at, cutoff)
             if overlap <= 0:
+                previous_end = u.at + u.duration
                 continue
 
             if u.speaker == SELLER:
+                if previous_end is not None and u.at > previous_end:
+                    run = 0.0
                 m.seller_seconds += overlap
                 run += overlap
                 m.longest_seller_monologue = max(m.longest_seller_monologue, run)
@@ -139,11 +170,11 @@ class CueEngine:
             else:
                 m.prospect_seconds += overlap
                 run = 0.0
+            previous_end = u.at + u.duration
         return m
 
     def _now(self) -> float:
-        last = self._utterances[-1]
-        return last.at + last.duration
+        return max(u.at + u.duration for u in self._utterances)
 
     def _said(self, pattern: re.Pattern[str], speaker: str | None = None, window: float = 60.0) -> bool:
         cutoff = self._now() - window

@@ -49,9 +49,10 @@ the outbound hook enforces — read in the other direction. Anything the DLP hoo
 would block on the way out is scrubbed on the way in, plus long digit runs
 (card and account numbers read aloud on a call).
 
-If the DLP mount is missing, the service logs at ERROR and redacts nothing
-rather than refusing to start — a broken mount should not take a sales team's
-calls offline. Watch for that log line.
+If the DLP mount is missing or the rule file is unreadable, the service still
+starts (a broken mount must not take calls offline) but **skips LiteLLM** and
+shows the cue's own wording. Watch for that ERROR log line. An empty redactor
+is not treated as a working ruleset.
 
 ## Why a cue engine instead of streaming everything to a model
 
@@ -91,8 +92,9 @@ measure, or the cue keeps firing long after the seller handed the call back.
 
 ```bash
 # infra/.env
-AGORA_APP_ID=<from console.agora.io>
-AGORA_APP_CERTIFICATE=<enable the certificate on the project first>
+AGORA_APP_ID=<32-char hex from console.agora.io>
+AGORA_APP_CERTIFICATE=<32-char hex; enable the certificate on the project first>
+COACH_JOIN_SECRET=<shared bearer, same idea as healthguard PATIENT_API_TOKEN>
 COACH_COMPETITORS=Gong,Chorus,Clari      # optional
 COACH_EXPECTED_DURATION=1800             # seconds, drives the next-step cue
 ```
@@ -104,11 +106,28 @@ docker compose \
   -f compose/docker-compose.coach.yml up -d
 ```
 
-Then open `https://coach.<BD_COACH_DOMAIN>`, enter a call id, and join. The
-prospect joins the same call id.
+Then open `https://coach.<BD_COACH_DOMAIN>`, enter a call id, pick seller or
+prospect (each role gets its own Agora uid so the two parties do not collide),
+paste `COACH_JOIN_SECRET`, and join. The other party uses the same call id and
+the other role. The secret can also be passed as `?token=` on the page URL.
 
-Without `AGORA_APP_ID` / `AGORA_APP_CERTIFICATE` the service still starts and
-reports `call_surface: false` on `/healthz`; the rest of the stack is unaffected.
+### Auth model
+
+`POST /token` and `/ws/coach` sit on the public Traefik host. They are guarded
+by `COACH_JOIN_SECRET`, a **shared bearer** — HTTP `Authorization: Bearer …`,
+WebSocket query `token=` (browsers cannot set WS headers easily). This is the
+same pattern as healthguard's `PATIENT_API_TOKEN`: it authenticates the caller
+as this deployment, not as a specific user. There is no Keycloak or per-user
+session on this overlay; `call_id` is the meeting capability behind the secret.
+
+If `COACH_JOIN_SECRET` is unset, `/token` and `/ws/coach` return 503. `/healthz`
+still works and reports `join_guard: false`. When `BD_COACH_DOMAIN` is set, the
+websocket also requires `Origin: https://coach.<BD_COACH_DOMAIN>`.
+
+Without valid 32-character hex `AGORA_APP_ID` / `AGORA_APP_CERTIFICATE` the
+service still starts and reports `call_surface: false` on `/healthz`; the rest
+of the stack is unaffected. A mint that somehow still produces an empty token
+is rejected with 503 rather than returned as `"token": ""`.
 
 ## Layout
 
@@ -139,6 +158,7 @@ independently decodable file. If you change `CHUNK_SECONDS` in
 
 - Nudges are not persisted. End-of-call metrics are returned over the socket
   and shown in the panel, but nothing is written to Baserow yet.
-- `MM_HOOK_COACH` is read from config but no Mattermost post is sent.
+- `MM_HOOK_COACH` is reserved: read from config but not wired. No Mattermost
+  post is sent.
 - Speaker attribution relies on Agora's per-user tracks, so it is exact for a
   two-party call and untested with three or more participants.

@@ -65,6 +65,20 @@ class Coach:
 
     async def phrase(self, cue: Cue, recent_transcript: str = "") -> dict:
         """Produce the nudge to show. Always returns something displayable."""
+        # Unreadable DLP rules: fail closed for the model path. Show the cue's
+        # own wording rather than sending an unredacted transcript to LiteLLM
+        # (which may fail over to Groq).
+        if not self._redactor.loaded:
+            log.error("DLP rules not loaded — skipping model phrasing")
+            return {
+                "type": "nudge",
+                "cue": cue.id,
+                "evidence": cue.evidence,
+                "text": cue.intent,
+                "model_used": False,
+                "redacted_rules": [],
+            }
+
         # Redact before the text leaves this process — LiteLLM may fail over to
         # a cloud provider, and that decision is made downstream of here.
         scrubbed = self._redactor.redact(recent_transcript)

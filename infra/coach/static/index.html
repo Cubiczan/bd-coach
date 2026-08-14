@@ -53,7 +53,12 @@
         font-size: 18px;
         margin: 0 12px 0 0;
       }
+      label {
+        font-size: 13px;
+        color: var(--muted);
+      }
       input,
+      select,
       button {
         font: inherit;
         padding: 8px 12px;
@@ -149,10 +154,18 @@
   <body>
     <header>
       <h1>BD Coach — live call</h1>
-      <input id="call-id" placeholder="call id, e.g. acme-discovery" size="24" />
+      <label for="call-id">Call id</label>
+      <input id="call-id" placeholder="e.g. acme-discovery" size="24" />
+      <label for="role">Role</label>
+      <select id="role">
+        <option value="seller" selected>Seller</option>
+        <option value="prospect">Prospect</option>
+      </select>
+      <label for="join-secret">Join secret</label>
+      <input id="join-secret" type="password" placeholder="COACH_JOIN_SECRET" size="20" autocomplete="off" />
       <button id="join" type="button">Join call</button>
       <button id="leave" type="button" disabled>End call</button>
-      <span id="status" data-tone="idle">Idle</span>
+      <span id="status" role="status" aria-live="polite" data-tone="idle">Idle</span>
     </header>
 
     <div class="grid">

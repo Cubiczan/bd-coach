@@ -52,6 +52,10 @@ class Transcriber:
             log.warning("transcription failed, dropping chunk: %s", exc)
             return ""
 
+        if not isinstance(payload, dict):
+            log.warning("transcription returned a non-object payload, dropping chunk")
+            return ""
+
         return str(payload.get("text", "")).strip()
 
 
@@ -63,4 +67,4 @@ async def transcribe_many(
         *(transcriber.transcribe(audio) for _, audio in chunks),
         return_exceptions=False,
     )
-    return [(speaker, text) for (speaker, _), text in zip(chunks, results)]
+    return [(speaker, text) for (speaker, _), text in zip(chunks, results, strict=True)]

@@ -17,12 +17,15 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+from app.auth import bearer_token, join_secret_ok  # noqa: E402
+from app.config import Settings  # noqa: E402
 from app.cues import (  # noqa: E402
     GLOBAL_COOLDOWN_SECONDS,
     PROSPECT,
     SELLER,
     CueEngine,
     Utterance,
+    finite_nonneg,
 )
 from app.redaction import Redactor  # noqa: E402
 
@@ -83,6 +86,22 @@ class MonologueTests(unittest.TestCase):
         engine.add(seller("First half.", at=0, duration=40))
         engine.add(prospect("Got it.", at=40, duration=3))
         engine.add(seller("Second half.", at=43, duration=40))
+        self.assertNotIn("monologue", fired_ids(engine))
+
+    def test_silence_gap_resets_seller_monologue(self):
+        engine = CueEngine()
+        engine.add(seller("First half.", at=0, duration=40))
+        engine.add(seller("Second half after a pause.", at=45, duration=40))
+        self.assertNotIn("monologue", fired_ids(engine))
+
+    def test_out_of_order_add_inserts_by_at(self):
+        # Concurrent recorders can deliver the in-between prospect turn last.
+        # Without insert-by-at the two seller chunks look like an 80s monologue.
+        engine = CueEngine()
+        engine.add(seller("First half.", at=0, duration=40))
+        engine.add(seller("Second half.", at=43, duration=40))
+        engine.add(prospect("Got it.", at=40, duration=3))
+        self.assertEqual([u.at for u in engine.recent(8)], [0, 40, 43])
         self.assertNotIn("monologue", fired_ids(engine))
 
 
@@ -255,10 +274,93 @@ class RedactionTests(unittest.TestCase):
         self.assertEqual(result.rule_ids.count("pii_email"), 1)
 
     def test_missing_rules_redact_nothing_but_still_work(self):
-        # Mirrors the fail-open-with-a-loud-log path in main._load_redactor.
         empty = Redactor({"rules": {}})
         result = empty.redact("base salary is $180,000")
         self.assertIn("180,000", result.text)
+        self.assertTrue(empty.loaded)
+
+    def test_unloaded_redactor_reports_loaded_false(self):
+        empty = Redactor({"rules": {}}, loaded=False)
+        self.assertFalse(empty.loaded)
+
+    def test_from_path_wraps_yaml_errors(self):
+        path = ROOT / "_tmp_bad_dlp.yaml"
+        path.write_text(":\n  - not: valid: yaml\n")
+        try:
+            with self.assertRaises(ValueError):
+                Redactor.from_path(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_from_path_rejects_non_dict_shape(self):
+        path = ROOT / "_tmp_list_dlp.yaml"
+        path.write_text("- just a list\n")
+        try:
+            with self.assertRaises(ValueError):
+                Redactor.from_path(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+
+class AuthTests(unittest.TestCase):
+    def test_join_secret_ok_matches(self):
+        self.assertTrue(join_secret_ok("shared-secret", "shared-secret"))
+
+    def test_join_secret_ok_rejects_mismatch_and_empty(self):
+        self.assertFalse(join_secret_ok("nope", "shared-secret"))
+        self.assertFalse(join_secret_ok("", "shared-secret"))
+        self.assertFalse(join_secret_ok("shared-secret", ""))
+        self.assertFalse(join_secret_ok(None, "shared-secret"))
+
+    def test_bearer_token_extracts_value(self):
+        self.assertEqual(bearer_token("Bearer abc"), "abc")
+        self.assertEqual(bearer_token("bearer abc"), "abc")
+        self.assertEqual(bearer_token("Basic abc"), "")
+        self.assertEqual(bearer_token(None), "")
+
+
+class TimingTests(unittest.TestCase):
+    def test_finite_nonneg_clamps_junk(self):
+        self.assertEqual(finite_nonneg(3.5), 3.5)
+        self.assertEqual(finite_nonneg("2"), 2.0)
+        self.assertEqual(finite_nonneg("nan"), 0.0)
+        self.assertEqual(finite_nonneg("inf"), 0.0)
+        self.assertEqual(finite_nonneg(-1), 0.0)
+        self.assertEqual(finite_nonneg("nope"), 0.0)
+        self.assertEqual(finite_nonneg(None), 0.0)
+
+    def test_add_clamps_nan_duration(self):
+        engine = CueEngine()
+        engine.add(seller("hi", at=0, duration=float("nan")))
+        self.assertEqual(engine.recent(1)[0].duration, 0.0)
+
+
+class AgoraConfigTests(unittest.TestCase):
+    def _settings(self, app_id: str, cert: str) -> Settings:
+        return Settings(
+            agora_app_id=app_id,
+            agora_app_certificate=cert,
+            token_ttl=3600,
+            whisper_url="",
+            whisper_model="",
+            litellm_url="",
+            litellm_key="",
+            coach_model="",
+            competitors=(),
+            expected_duration=1800.0,
+            prompt_path="",
+            dlp_rules_path="",
+            mattermost_webhook="",
+            join_secret="",
+            public_domain="",
+        )
+
+    def test_configured_requires_32_char_hex(self):
+        hex32 = "a" * 32
+        self.assertTrue(self._settings(hex32, hex32).configured)
+        self.assertFalse(self._settings("", hex32).configured)
+        self.assertFalse(self._settings("not-hex", hex32).configured)
+        self.assertFalse(self._settings("g" * 32, hex32).configured)
 
 
 def main() -> int:

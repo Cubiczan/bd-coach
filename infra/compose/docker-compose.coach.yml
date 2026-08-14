@@ -25,6 +25,9 @@ services:
       AGORA_APP_ID: ${AGORA_APP_ID:-}
       AGORA_APP_CERTIFICATE: ${AGORA_APP_CERTIFICATE:-}
       AGORA_TOKEN_TTL: ${AGORA_TOKEN_TTL:-3600}
+      # Shared bearer for POST /token and /ws/coach. Unset → those endpoints 503.
+      COACH_JOIN_SECRET: ${COACH_JOIN_SECRET:-}
+      BD_COACH_DOMAIN: ${BD_COACH_DOMAIN:-}
       # In-house pipeline.
       COACH_WHISPER_URL: http://whisper:8000/v1/audio/transcriptions
       COACH_WHISPER_MODEL: ${COACH_WHISPER_MODEL:-Systran/faster-whisper-base}
