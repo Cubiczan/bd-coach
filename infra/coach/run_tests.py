@@ -104,6 +104,20 @@ class MonologueTests(unittest.TestCase):
         self.assertEqual([u.at for u in engine.recent(8)], [0, 40, 43])
         self.assertNotIn("monologue", fired_ids(engine))
 
+    def test_aged_out_overlap_does_not_split_in_window_monologue(self):
+        # Short prospect turn starts during a longer in-window seller utterance
+        # but ends before the rolling cutoff. Rewinding previous_end from that
+        # aged-out turn would make the next seller chunk look like a silence
+        # gap and suppress the monologue cue.
+        engine = CueEngine()
+        engine.add(seller("First half of a long stretch.", at=0, duration=80))
+        engine.add(prospect("Mm.", at=5, duration=3))
+        engine.add(seller("Second half, still going.", at=80, duration=20))
+        # now=100, cutoff=10. Prospect 5–8 is fully aged out. In-window seller
+        # run is 70s (clipped) + 20s = 90s if previous_end is not rewound.
+        self.assertGreaterEqual(engine.metrics().longest_seller_monologue, 75)
+        self.assertIn("monologue", fired_ids(engine))
+
 
 class ObjectionAndCompetitorTests(unittest.TestCase):
     def test_prospect_concern_fires_an_objection_cue(self):

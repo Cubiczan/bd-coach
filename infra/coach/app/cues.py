@@ -156,7 +156,10 @@ class CueEngine:
             # handed the call back.
             overlap = (u.at + u.duration) - max(u.at, cutoff)
             if overlap <= 0:
-                previous_end = u.at + u.duration
+                # Fully aged-out turns must not rewind previous_end. A short
+                # prospect utterance that starts during a longer in-window
+                # seller stretch but ends before cutoff would otherwise make
+                # the next seller chunk look like a silence gap and reset run.
                 continue
 
             if u.speaker == SELLER:
