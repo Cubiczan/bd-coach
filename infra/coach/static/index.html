@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BD Coach — live call</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --ink: #16181d;
+        --muted: #5c6370;
+        --line: #dcdfe4;
+        --accent: #1f6feb;
+        --live: #128a5b;
+        --error: #b3261e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --panel: #171a21;
+          --ink: #e8eaed;
+          --muted: #9aa1ab;
+          --line: #2a2f3a;
+          --accent: #4c8dff;
+          --live: #3ddc97;
+          --error: #ff6b6b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          15px/1.5 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 12px 0 0;
+      }
+      label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--ink);
+      }
+      button {
+        cursor: pointer;
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      #status {
+        margin-left: auto;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      #status[data-tone='live'] {
+        color: var(--live);
+      }
+      #status[data-tone='error'] {
+        color: var(--error);
+      }
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      h2 {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 12px;
+      }
+      .nudge {
+        border-left: 3px solid var(--accent);
+        padding: 8px 0 8px 12px;
+        margin-bottom: 12px;
+      }
+      .nudge-text {
+        margin: 0;
+        font-weight: 600;
+      }
+      .nudge-evidence {
+        margin: 4px 0 0;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .line {
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      .line-seller {
+        color: var(--ink);
+      }
+      .line-prospect {
+        color: var(--muted);
+      }
+      #transcript {
+        max-height: 340px;
+        overflow-y: auto;
+      }
+      #metrics {
+        margin-top: 16px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 20px;
+        font-size: 12px;
+        color: var(--muted);
+        max-width: 70ch;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>BD Coach — live call</h1>
+      <label for="call-id">Call id</label>
+      <input id="call-id" placeholder="e.g. acme-discovery" size="24" />
+      <label for="role">Role</label>
+      <select id="role">
+        <option value="seller" selected>Seller</option>
+        <option value="prospect">Prospect</option>
+      </select>
+      <label for="join-secret">Join secret</label>
+      <input id="join-secret" type="password" placeholder="COACH_JOIN_SECRET" size="20" autocomplete="off" />
+      <button id="join" type="button">Join call</button>
+      <button id="leave" type="button" disabled>End call</button>
+      <span id="status" role="status" aria-live="polite" data-tone="idle">Idle</span>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Coaching</h2>
+        <div id="nudges"></div>
+        <div id="metrics"></div>
+      </section>
+      <section>
+        <h2>Transcript</h2>
+        <div id="transcript"></div>
+      </section>
+    </div>
+
+    <footer>
+      Call audio is carried by Agora. Transcription runs on this stack's own
+      Whisper container, and transcripts are redacted against the BD Coach DLP
+      rules before any text reaches the model gateway.
+    </footer>
+
+    <script src="/vendor/AgoraRTC_N-production.js"></script>
+    <script src="/coach.js"></script>
+  </body>
+</html>

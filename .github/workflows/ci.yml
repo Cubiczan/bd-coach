@@ -71,6 +71,16 @@ jobs:
         uses: ibiqlik/action-yamllint@v3
         with:
           file_or_dir: infra
+      - name: Live-coach cue + redaction tests
+        run: |
+          pip install pyyaml
+          python infra/coach/run_tests.py
       - name: Compose validate
         working-directory: infra
         run: docker compose -f compose/docker-compose.yml --env-file .env.example config -q
+      - name: Compose validate (live-coach overlay)
+        working-directory: infra
+        run: |
+          docker compose -f compose/docker-compose.yml \
+            -f compose/docker-compose.coach.yml \
+            --env-file .env.example config -q

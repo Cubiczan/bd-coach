@@ -24,3 +24,7 @@ build/
 
 # OS
 .DS_Store
+
+# Agora Web SDK is fetched at image build time (infra/coach/Dockerfile),
+# not committed — ~1 MB vendor bundle.
+infra/coach/static/vendor/
