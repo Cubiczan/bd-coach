@@ -112,3 +112,14 @@ Full boundary analysis, cue table, and setup: **[infra/docs/LIVE-COACH.md](infra
 - **infra** — Python syntax check on hooks/scripts, yamllint, the live-coach cue
   and redaction tests (`infra/coach/run_tests.py`), and `docker compose config -q`
   for both the base stack and the live-coach overlay.
+
+### Row 34 — guardrail fixtures: DONOR (the pattern's origin — organic, CI-enforced)
+
+bd-coach is the donor the canonical row-34 fixture pattern extends. The full pattern already lives here and runs in CI on every PR (`ci.yml:42` → `python config/dlp/run_tests.py`):
+
+- **Fixtures as data:** `config/dlp/test_fixtures.yaml` pins prompt-shaped expectations in two named lists — `must_block_for_non_ceo` (peer compensation figures, salary-review language, termination/gate clauses) and `must_pass_for_non_ceo` (legitimate coaching requests: weekly reports, point thresholds, follow-up emails, MTD summaries) — so additions are YAML lines, not test code.
+- **Policy separate from fixtures:** the regexes live in `config/dlp/restricted_hr_comp.yaml` under `rules.block_for_non_ceo`; fixtures assert against the policy, never copy it — a policy change that breaks an expectation fails CI rather than silently passing.
+- **Fail-closed runner:** `config/dlp/run_tests.py` loads both YAML files, compiles the block patterns, prints every failing sample, and exits non-zero on any mismatch between expectation and outcome (`sys.exit(main())`).
+- **Sibling surface:** `infra/coach/run_tests.py` applies the same shape to the live-coach cue and redaction tests (CI job `infra`, `ci.yml:77`).
+
+This is the origin the wave-C row-34 adopter assessments were patterned from (cognitrader-bsc #6, self-improving-outreach #3/#4): the same must-block/must-pass fixture shape, policy-separated rules, and a fail-closed CI runner.
